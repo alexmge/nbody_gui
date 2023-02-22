@@ -1,7 +1,7 @@
 #include "imgui.h"
 #include "imgui-SFML.h"
-#include "imgui-elements.h"
-#include "physics.h"
+#include "imgui-elements.cuh"
+#include "physics.cuh"
 
 
 bool showQuadtree = false;
@@ -17,9 +17,10 @@ void drawbodies(sf::RenderWindow& window, std::vector<Vertex>* bodies)
 {
     for (Vertex& v : *bodies)
     {
+        sf::Vector2f pos = sf::Vector2f(v.position.x, v.position.y);
         sf::CircleShape shape(1.f);
         shape.setFillColor(v.color);
-        shape.setPosition(v.position);
+        shape.setPosition(pos);
         window.draw(shape);
     }
 }
@@ -40,10 +41,10 @@ int main(void)
     // fullscreen
     sf::RenderWindow window(sf::VideoMode(screenWidth, screenHeight), "N-Body Simulation");
     window.setFramerateLimit(144);
-    
+
     if (!ImGui::SFML::Init(window))
         return 1;
-        
+
     std::vector<Vertex>* bodies = new std::vector<Vertex>();
 
     sf::Clock deltaClock;
@@ -68,6 +69,10 @@ int main(void)
 
         insertBodies(tree, bodies);
 
+        Vertex* d_bodies;
+        cudaMalloc(&d_bodies, bodies->size() * sizeof(Vertex));
+        cudaMemcpy(d_bodies, bodies->data(), bodies->size() * sizeof(Vertex), cudaMemcpyHostToDevice);
+
         if (!pause)
         {
             if (barnesHut)
@@ -76,9 +81,12 @@ int main(void)
             }
             else
             {
-                updateBodies(bodies);
+                updateBodies<<<32,1>>>(d_bodies, bodies->size() * sizeof(Vertex));
             }
         }
+
+        cudaMemcpy(bodies->data(), d_bodies, bodies->size() * sizeof(Vertex), cudaMemcpyDeviceToHost);
+        cudaFree(d_bodies);
 
         window.clear(sf::Color::Black);
 
@@ -96,6 +104,7 @@ int main(void)
         delete tree;
     }
 
+    cudaFree(bodies->data());
     delete bodies;
 
     ImGui::SFML::Shutdown();

@@ -1,11 +1,13 @@
 #include <SFML/System.hpp>
 #include <SFML/Graphics.hpp>
+#include "vector.cuh"
+
 
 struct Vertex
 {
-    sf::Vector2f position;
-    sf::Vector2f velocity;
-    sf::Vector2f acceleration;
+    Vector position;
+    Vector velocity;
+    Vector acceleration;
     float mass;
     sf::Color color;
 };
@@ -18,7 +20,7 @@ public:
     float total_mass;
     struct Vertex *body;
     sf::FloatRect bounds;
-    sf::Vector2f center_of_mass;
+    Vector center_of_mass;
     Quadtree(sf::FloatRect bounds);
     ~Quadtree();
     void insert(struct Vertex *body);
@@ -29,7 +31,7 @@ public:
     struct Quadtree *southeast;
     struct Vertex* getBody();
     sf::FloatRect getBounds();
-    sf::Vector2f getCenterOfMass();
+    Vector getCenterOfMass();
     float getTotalMass();
     bool inBoundary(struct Vertex* body);
 };

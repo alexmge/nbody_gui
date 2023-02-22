@@ -1,11 +1,11 @@
 #include <iostream>
 #include <stack>
-#include "physics.h"
+#include "physics.cuh"
 #include <thread>
 
 #define SOFTENING 2
 
-float gravity_constant = 0.1;
+__device__ float gravity_constant = 0.1;
 
 /**
  * @brief compute the force between two bodies according to newton's law of universal gravitation
@@ -13,19 +13,22 @@ float gravity_constant = 0.1;
  * @param body1 the first body
  * @param body2 the second body
  * 
- * @return sf::Vector2f the force between the two bodies
+ * @return Vector the force between the two bodies
  */
-sf::Vector2f computeForce(Vertex* body1, Vertex* body2)
+__device__
+void computeForce(Vertex* body1, Vertex* body2, Vector* force)
 {
     // compute the distance between the two bodies
-    sf::Vector2f distance = body2->position - body1->position;
+    Vector distance = Vector(0, 0);
+    distance.x = body2->position.x - body1->position.x;
+    distance.y = body2->position.y - body1->position.y;
     float distanceMagnitude = sqrt(pow(distance.x, 2) + pow(distance.y, 2));
 
     // compute the force between the two bodies
     float forceMagnitude =  gravity_constant * (body1->mass * body2->mass) / (pow(distanceMagnitude, 2) + 10);
-    sf::Vector2f force = forceMagnitude * distance / distanceMagnitude;
+    Vector res = distance * forceMagnitude / distanceMagnitude;
 
-    return force;
+    *force += res;
 }
 
 /**
@@ -34,9 +37,9 @@ sf::Vector2f computeForce(Vertex* body1, Vertex* body2)
  * @param body the body
  * @param quadtree the quadtree
  * 
- * @return sf::Vector2f the force between the body and the quadtree
+ * @return Vector the force between the body and the quadtree
  */
-sf::Vector2f computeForce(Vertex* body, Quadtree* quadtree)
+void computeForce_qtree(Vertex* body, Quadtree* quadtree, Vector* force)
 {
     // Stack to store the quadtree nodes that need to be processed
     std::stack<Quadtree*> nodes;
@@ -44,7 +47,7 @@ sf::Vector2f computeForce(Vertex* body, Quadtree* quadtree)
     // Push the root node onto the stack
     nodes.push(quadtree);
 
-    sf::Vector2f force(0, 0);
+    Vector res = Vector(0, 0);
 
     while (!nodes.empty())
     {
@@ -55,17 +58,17 @@ sf::Vector2f computeForce(Vertex* body, Quadtree* quadtree)
         // between the body and the leaf node to the total force
         if (node->getBody() != NULL && node->getBody() != body)
         {
-            sf::Vector2f distance = node->getBody()->position - body->position;
+            Vector distance = node->getBody()->position - body->position;
             float distanceMagnitude = sqrt(pow(distance.x, 2) + pow(distance.y, 2));
             float forceMagnitude = gravity_constant * (body->mass * node->getTotalMass()) / (pow(distanceMagnitude, 2) + SOFTENING);
 
-            force += forceMagnitude * distance / (distanceMagnitude + SOFTENING);
+            res += distance * forceMagnitude / (distanceMagnitude + SOFTENING);
         }
         // Otherwise, calculate the ratio s/d (current region's width / distance to center of mass)
         else
         {
             // Compute the distance between the body and the center of mass
-            sf::Vector2f distance = node->getCenterOfMass() - body->position;
+            Vector distance = node->getCenterOfMass() - body->position;
             float distanceMagnitude = sqrt(pow(distance.x, 2) + pow(distance.y, 2));
 
             // Compute the ratio s/d
@@ -77,7 +80,7 @@ sf::Vector2f computeForce(Vertex* body, Quadtree* quadtree)
             {
                 float forceMagnitude =  gravity_constant * (body->mass * node->getTotalMass()) / (pow(distanceMagnitude, 2) + SOFTENING);
 
-                force += forceMagnitude * distance / (distanceMagnitude + SOFTENING);
+                res += distance * forceMagnitude / (distanceMagnitude + SOFTENING);
             }
             else
             {
@@ -101,7 +104,7 @@ sf::Vector2f computeForce(Vertex* body, Quadtree* quadtree)
         }
     }
 
-    return force;
+    *force += res;
 }
 
 /**
@@ -109,27 +112,36 @@ sf::Vector2f computeForce(Vertex* body, Quadtree* quadtree)
  * 
  * @param bodies the vector of bodies
  */
-void updateBodies(std::vector<Vertex>* bodies)
+__global__
+void updateBodies(Vertex* bodies, int size)
 {
-    // use two for loops to compute the force between each body
-    for (Vertex& body1 : *bodies)
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    // for each body, compute the force it exerts on all the other bodies
+    for (int i = index; i < size; i += stride)
     {
-        for (Vertex& body2 : *bodies)
+        Vertex* body1 = &bodies[i];
+        
+        for (int j = 0; j < size; j++)
         {
-            if (&body1 != &body2)
+            if (i != j)
             {
-                sf::Vector2f force = computeForce(&body1, &body2);
-                body1.acceleration += force / body1.mass;
+                Vertex* body2 = &bodies[j];
+                Vector force(0, 0);
+                computeForce(body1, body2, &force);
+                body1->acceleration += force / body1->mass;
             }
         }
     }
 
     // update the position, velocity and acceleration of each body
-    for (Vertex& body : *bodies)
+    for (int i = index; i < size; i += stride)
     {
-        body.velocity += body.acceleration;
-        body.position += body.velocity;
-        body.acceleration = sf::Vector2f(0, 0);
+        Vertex* body = &bodies[i];
+        body->velocity += body->acceleration;
+        body->position += body->velocity;
+        body->acceleration = Vector(0, 0);
     }
 }
 
@@ -141,50 +153,19 @@ void updateBodies(std::vector<Vertex>* bodies)
  */
 void updateBodies(std::vector<Vertex>* bodies, Quadtree* quadtree)
 {
-    const size_t num_threads = std::min(bodies->size(), 15ul) + 1;
-    const size_t block_size = (bodies->size() + num_threads - 1) / num_threads;
-
-    std::vector<std::thread> threads;
-    for (size_t i = 0; i < num_threads; ++i)
+    // for each body, compute the force it exerts on all the other bodies
+    for (Vertex& body : *bodies)
     {
-        const size_t start = i * block_size;
-        const size_t end = std::min(start + block_size, bodies->size());
-
-        threads.push_back(std::thread([&, start, end](){
-            for (size_t j = start; j < end; ++j)
-            {
-                Vertex& body = (*bodies)[j];
-                sf::Vector2f force = computeForce(&body, quadtree);
-                body.acceleration += force / body.mass;
-            }
-        }));
+        Vector force(0, 0);
+        computeForce_qtree(&body, quadtree, &force);
+        body.acceleration += force / body.mass;
     }
 
-    for (auto& thread : threads)
+    // update the position, velocity and acceleration of each body
+    for (Vertex& body : *bodies)
     {
-        thread.join();
-    }
-
-    threads.clear();
-    for (size_t i = 0; i < num_threads; ++i)
-    {
-        const size_t start = i * block_size;
-        const size_t end = std::min(start + block_size, bodies->size());
-
-        threads.push_back(std::thread([&, start, end](){
-            for (size_t j = start; j < end; ++j)
-            {
-                Vertex& body = (*bodies)[j];
-                body.velocity += body.acceleration;
-                body.position += body.velocity;
-                body.acceleration = sf::Vector2f(0, 0);
-            }
-        }));
-    }
-
-    for (auto& thread : threads)
-    {
-        thread.join();
+        body.velocity += body.acceleration;
+        body.position += body.velocity;
+        body.acceleration = Vector(0, 0);
     }
 }
-

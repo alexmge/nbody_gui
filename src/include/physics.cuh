@@ -7,5 +7,5 @@
 
 #include "quadtree.h"
 
-void updateBodies(std::vector<Vertex>* bodies);
+__global__ void updateBodies(Vertex* bodies, int size);
 void updateBodies(std::vector<Vertex>* bodies, Quadtree* quadtree);

@@ -1,6 +1,6 @@
 #include "imgui.h"
 #include "imgui-SFML.h"
-#include "imgui-elements.h"
+#include "imgui-elements.cuh"
 
 void QuadtreeTreeNode(Quadtree* tree)
 {
@@ -51,15 +51,15 @@ void GUI_Bodies(std::vector<Vertex>* bodies, Quadtree *tree, sf::Clock& deltaClo
     //number of bodies
     ImGui::Text("Number of bodies: %lu", bodies->size());
     //slider to change the value of gravity
-    ImGui::SliderFloat("Gravity", &gravity_constant, -2, 5);
+    ImGui::SliderFloat("Gravity", &gravity_constant, -1, 1);
     if (ImGui::TreeNode("Bodies Options"))
     {
         if (ImGui::Button("Add Body"))
         {
             Vertex v;
-            v.position = sf::Vector2f(rand() % screenWidth, rand() % screenHeight);
-            v.acceleration = sf::Vector2f(0, 0);
-            v.velocity = sf::Vector2f(0, 0);
+            v.position = Vector(rand() % screenWidth, rand() % screenHeight);
+            v.acceleration = Vector(0, 0);
+            v.velocity = Vector(0, 0);
             v.mass = 1;
             v.color = sf::Color::White;
             bodies->push_back(v);
@@ -73,10 +73,10 @@ void GUI_Bodies(std::vector<Vertex>* bodies, Quadtree *tree, sf::Clock& deltaClo
     {
         Vertex v;
         float angle = 2 * M_PI * i / 1000;
-        v.position = sf::Vector2f(center_x + 100 * cos(angle), center_y + 100 * sin(angle));
-        v.acceleration = sf::Vector2f(0, 0);
+        v.position = Vector(center_x + 100 * cos(angle), center_y + 100 * sin(angle));
+        v.acceleration = Vector(0, 0);
         // tangential velocity
-        v.velocity = sf::Vector2f(-100 * sin(angle) * 0.01f, 100 * cos(angle) * 0.01f);
+        v.velocity = Vector(-100 * sin(angle) * 0.01f, 100 * cos(angle) * 0.01f);
         v.mass = 1;
         v.color = sf::Color::White;
         bodies->push_back(v);

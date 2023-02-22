@@ -202,9 +202,9 @@ sf::FloatRect Quadtree::getBounds()
     return this->bounds;
 }
 
-sf::Vector2f Quadtree::getCenterOfMass()
+Vector Quadtree::getCenterOfMass()
 {
-    return this->center_of_mass;
+    return Vector(this->center_of_mass.x, this->center_of_mass.y);
 }
 
 float Quadtree::getTotalMass()
